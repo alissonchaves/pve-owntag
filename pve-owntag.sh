@@ -151,7 +151,7 @@ generate_tags() {
             usuario=$(basename "$latest_file" | cut -d':' -f8 | cut -d'@' -f1)
 
             # Adicionar o prefixo "OWNER_" à tag
-            usuario="${CUSTOM_TAG}_$usuario"
+            usuario="owner_${usuario}"
 
             # Obter as tags atuais
             if [ "$tipo" == "vm" ]; then
@@ -160,18 +160,19 @@ generate_tags() {
                 tags_atuais=$(pct config "${item}" | grep -i "tags" | cut -d':' -f2 | tr -d '[:space:]')
             fi
 
-            # Substituir as tags que começam com "OWNER_" e adicionar a nova tag "OWNER_$usuario"
-            if [ -n "$tags_atuais" ]; then
-                # Substituir qualquer tag existente com o prefixo "OWNER_" pela nova
-                tags_atuais=$(echo "$tags_atuais" | sed -E "s/\bOWNER_[^,]*\b/$usuario/g")
-                # Adicionar a nova tag se não existir
-                if [[ ! "$tags_atuais" =~ "$usuario" ]]; then
-                    tags_atuais="${tags_atuais},${usuario}"
-                fi
-            else
-                # Se não houver tags, adicionar a nova tag como a única
-                tags_atuais="${usuario}"
-            fi
+            # Substituir as tags que começam com "owner_" pela nova tag "owner_$usuario"
+if [ -n "$tags_atuais" ]; then
+    # Substituir qualquer tag existente com o prefixo "owner_" pela nova tag
+    tags_atuais=$(echo "$tags_atuais" | sed -E "s/\bowner_[^,]*\b/$usuario/g")
+    # Adicionar a nova tag se não existir
+    if [[ ! "$tags_atuais" =~ "$usuario" ]]; then
+        tags_atuais="${tags_atuais},${usuario}"
+    fi
+else
+    # Se não houver tags, adicionar a nova tag como a única
+    tags_atuais="${usuario}"
+fi
+
 
             # Adicionar a nova tag à VM ou Container
             if [ "$tipo" == "vm" ]; then
@@ -219,7 +220,10 @@ chmod +x "$INSTALL_DIR/pve-owntag"
 # Criar o arquivo de configuração
 cat << 'EOF' > "$CONFIG_FILE"
 # Configuração do PVE OWNER Tag
-LOOP_INTERVAL=600  # Intervalo entre as execuções do script, em segundos (ex: 600 para 10 minutos)
+LOOP_INTERVAL=60
+FW_NET_INTERFACE_CHECK_INTERVAL=60
+QM_STATUS_CHECK_INTERVAL=-1
+FORCE_UPDATE_INTERVAL=1800
 EOF
 
 # Criar o arquivo de serviço do systemd
