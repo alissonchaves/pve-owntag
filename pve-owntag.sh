@@ -113,7 +113,7 @@ fi
 
 # The rest of the script installer and configuration follows below.
 INSTALL_DIR="/opt/pve-owntag"
-SERVICE_FILE="/lib/systemd/system/qm-iptag.service"
+SERVICE_FILE="/lib/systemd/system/pve-owntag.service"
 CONFIG_FILE="$INSTALL_DIR/pve-owntag.conf"
 
 # Create the installation directory
