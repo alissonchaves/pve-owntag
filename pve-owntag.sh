@@ -4,7 +4,7 @@
 # Author: Alisson Chaves
 # License: MIT
 # https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
-# Source: https://github.com/alissonchaves/qm-iptag
+# Source: https://github.com/alissonchaves/pve-owntag
 
 # Função para exibir o cabeçalho
 function header_info {
@@ -120,7 +120,7 @@ CONFIG_FILE="$INSTALL_DIR/pve-owntag.conf"
 mkdir -p "$INSTALL_DIR"
 
 # Baixar o script principal
-cat << 'EOF' > "$INSTALL_DIR/pve-owntag.sh"
+cat << 'EOF' > "$INSTALL_DIR/pve-owntag"
 #!/bin/bash
 
 # Função para ler as configurações do arquivo
@@ -192,32 +192,36 @@ while true; do
 done
 EOF
 
+# Torna o script executável
+chmod +x "$INSTALL_DIR/pve-owntag"
+
 # Criar o arquivo de configuração
-cat << EOF > "$CONFIG_FILE"
-LOOP_INTERVAL=60
-FW_NET_INTERFACE_CHECK_INTERVAL=60
-QM_STATUS_CHECK_INTERVAL=-1
-FORCE_UPDATE_INTERVAL=1800
+cat << 'EOF' > "$CONFIG_FILE"
+# Configuração do PVE OWNER Tag
+LOOP_INTERVAL=600  # Intervalo entre as execuções do script, em segundos (ex: 600 para 10 minutos)
 EOF
 
-# Criar o serviço systemd
-cat << EOF > "$SERVICE_FILE"
+# Criar o arquivo de serviço do systemd
+cat << 'EOF' > "$SERVICE_FILE"
 [Unit]
-Description=PVE Owner Tag Service
+Description=PVE OWNER Tag Service
 After=network.target
 
 [Service]
-ExecStart=/opt/pve-owntag/pve-owntag.sh
+ExecStart=/opt/pve-owntag/pve-owntag
 Restart=always
 User=root
+WorkingDirectory=/opt/pve-owntag
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Recarregar o systemd e habilitar o serviço
+# Carregar o serviço systemd e iniciar o serviço
 systemctl daemon-reload
 systemctl enable pve-owntag.service
 systemctl start pve-owntag.service
 
-msg_ok "PVE Owner Tag Service installed and started successfully!"
+msg_ok "Installation complete. The service is now running."
+
+exit
