@@ -137,7 +137,7 @@ generate_tags() {
 
     for item in "${list[@]}"; do
         # Search through all files in /var/log/pve/tasks/ and find the most recent one
-        latest_file=$(grep -l -r "\-${item}\-" /var/log/pve/tasks/ | xargs ls -t | head -n 1)
+        latest_file=$(grep -l -r "\-${item}\-" /var/log/pve/tasks/ | xargs ls -t | head -n 1 | grep clone)
 
         if [ -n "$latest_file" ]; then
             # Determine if it is a VM or Container
