@@ -121,8 +121,6 @@ mkdir -p "$INSTALL_DIR"
 
 # Download the main script
 cat << 'EOF' > "$INSTALL_DIR/pve-owntag"
-#!/bin/bash
-
 # Load settings from file
 source "/opt/pve-owntag/pve-owntag.conf"
 
@@ -137,7 +135,7 @@ generate_tags() {
 
     for item in "${list[@]}"; do
         # Search through all files in /var/log/pve/tasks/ and find the most recent one
-        latest_file=$(grep -l -r "\-${item}\-" /var/log/pve/tasks/ | xargs ls -t | head -n 1 | grep clone)
+        latest_file=$(grep -l -r "\-${item}\-" /var/log/pve/tasks/ | xargs ls -t 2>/dev/null | head -n 1 | grep clone)
 
         if [ -n "$latest_file" ]; then
             # Determine if it is a VM or Container
@@ -149,8 +147,6 @@ generate_tags() {
 
             # Extract username from filename (field 8)
             user=$(basename "$latest_file" | cut -d':' -f8 | cut -d'@' -f1)
-
-            # Add the prefix "owner_" to the tag
             user="owner_${user}"
 
             # Get current tags
@@ -160,21 +156,15 @@ generate_tags() {
                 current_tags=$(pct config "${item}" | grep -i "tags" | cut -d':' -f2 | tr -d '[:space:]')
             fi
 
-            # Replace tags starting with "owner_" with the new tag "owner_$user"
             if [ -n "$current_tags" ]; then
-                # Replace any existing tag with the "owner_" prefix with the new tag
                 current_tags=$(echo "$current_tags" | sed -E "s/\bowner_[^,]*\b/$user/g")
-                # Add new tag if it doesn't exist
                 if [[ ! "$current_tags" =~ "$user" ]]; then
                     current_tags="${current_tags},${user}"
                 fi
             else
-                # If there are no tags, add the new tag as the only one
                 current_tags="${user}"
             fi
 
-
-            # Add the new tag to the VM or Container
             if [ "$type" == "vm" ]; then
                 echo "Executing: qm set ${item} -tags \"${current_tags}\""
                 qm set "${item}" -tags "${current_tags}"
@@ -186,30 +176,9 @@ generate_tags() {
     done
 }
 
-# Function to check the network interface (using the FW_NET_INTERFACE_CHECK_INTERVAL parameter)
-check_network_interface() {
-    while true; do
-        sleep "$FW_NET_INTERFACE_CHECK_INTERVAL"
-        # Logic to check network interface, you can add specific commands here.
-        # Example: Check if interface is up or something related to network.
-        echo "Checking network interface..."
-    done
-}
-
-# Function to force update (using the FORCE_UPDATE_INTERVAL parameter)
-force_update() {
-    while true; do
-        sleep "$FORCE_UPDATE_INTERVAL"
-        # Logic to force update, could be a status check or some necessary update.
-        echo "Forcing update..."
-    done
-}
-
-# Infinite loop to run functions and manage intervals
+# Simplified execution loop
 while true; do
     generate_tags
-    check_network_interface &
-    force_update &
     sleep "$LOOP_INTERVAL"
 done
 EOF
@@ -221,9 +190,6 @@ chmod +x "$INSTALL_DIR/pve-owntag"
 cat << 'EOF' > "$CONFIG_FILE"
 # PVE OWNER Tag Configuration
 LOOP_INTERVAL=300
-FW_NET_INTERFACE_CHECK_INTERVAL=60
-QM_STATUS_CHECK_INTERVAL=-1
-FORCE_UPDATE_INTERVAL=1800
 EOF
 
 # Create the systemd service file
