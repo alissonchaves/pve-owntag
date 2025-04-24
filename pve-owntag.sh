@@ -121,6 +121,8 @@ mkdir -p "$INSTALL_DIR"
 
 # Download the main script
 cat << 'EOF' > "$INSTALL_DIR/pve-owntag"
+#!/bin/bash
+
 # Load settings from file
 source "/opt/pve-owntag/pve-owntag.conf"
 
