@@ -128,54 +128,60 @@ source "/opt/pve-owntag/pve-owntag.conf"
 
 # Function to generate tags
 generate_tags() {
-    # Get the list of VMs and Containers, taking only the ID
-    mapfile -t list < <(qm list | grep -vE "VMID|template" | awk '{print $1}')
-    mapfile -t list_containers < <(pct list | grep -vE "VMID|template" | awk '{print $1}')
+  # Get the list of nodes in the cluster
+  mapfile -t nodes < <(pvesh get /nodes --output-format=json | grep -oP '"node":\s*"\K[^"]+')
 
-    # Merge lists of VMs and Containers
-    list=("${list[@]}" "${list_containers[@]}")
+  # Get the list of VMs and Containers from all nodes in the cluster
+  mapfile -t list < <(pvesh get /cluster/resources --type vm --output-format=json | grep -oP '"vmid":\s*\K\d+' | grep -v '"template":\s*1')
 
-    for item in "${list[@]}"; do
-        # Search through all files in /var/log/pve/tasks/ and find the most recent one
-        latest_file=$(grep -l -r "\-${item}\-" /var/log/pve/tasks/ | xargs ls -t 2>/dev/null | head -n 1 | grep clone)
-
-        if [ -n "$latest_file" ]; then
-            # Determine if it is a VM or Container
-            if [[ "$(qm list | awk -v id="$item" '$1 == id {print $1}')" == "$item" ]]; then
-                type="vm"
-            elif [[ "$(pct list | awk -v id="$item" '$1 == id {print $1}')" == "$item" ]]; then
-                type="container"
-            fi
-
-            # Extract username from filename (field 8)
-            user=$(basename "$latest_file" | cut -d':' -f8 | cut -d'@' -f1)
-            user="owner_${user}"
-
-            # Get current tags
-            if [ "$type" == "vm" ]; then
-                current_tags=$(qm config "${item}" | grep -i "tags" | cut -d':' -f2 | tr -d '[:space:]')
-            elif [ "$type" == "container" ]; then
-                current_tags=$(pct config "${item}" | grep -i "tags" | cut -d':' -f2 | tr -d '[:space:]')
-            fi
-
-            if [ -n "$current_tags" ]; then
-                current_tags=$(echo "$current_tags" | sed -E "s/\bowner_[^,]*\b/$user/g")
-                if [[ ! "$current_tags" =~ "$user" ]]; then
-                    current_tags="${current_tags},${user}"
-                fi
-            else
-                current_tags="${user}"
-            fi
-
-            if [ "$type" == "vm" ]; then
-                echo "Executing: qm set ${item} -tags \"${current_tags}\""
-                qm set "${item}" -tags "${current_tags}"
-            elif [ "$type" == "container" ]; then
-                echo "Executing: pct set ${item} -tags \"${current_tags}\""
-                pct set "${item}" -tags "${current_tags}"
-            fi
-        fi
+  for item in "${list[@]}"; do
+    latest_file=""
+    for node in "${nodes[@]}"; do
+      # Search logs on each node for the VM creation or clone action
+      remote_logs=$(ssh root@"$node" "grep -l -r '\-${item}\-' /var/log/pve/tasks/" 2>/dev/null | xargs ls -t 2>/dev/null | head -n 1 | grep clone)
+      if [ -n "$remote_logs" ]; then
+        latest_file="$remote_logs"
+        break
+      fi
     done
+
+    if [ -n "$latest_file" ]; then
+      # Determine if it is a VM or Container
+      if pvesh get /cluster/resources --type vm | grep -q "\"vmid\": $item"; then
+        type="vm"
+      elif pvesh get /cluster/resources --type lxc | grep -q "\"vmid\": $item"; then
+        type="container"
+      fi
+
+      # Extract username from filename (field 8)
+      user=$(basename "$latest_file" | cut -d':' -f8 | cut -d'@' -f1)
+      user="owner_${user}"
+
+      # Get current tags
+      if [ "$type" == "vm" ]; then
+        current_tags=$(qm config "${item}" | awk -F':' '/tags/ {print $2}' | tr -d '[:space:]')
+      elif [ "$type" == "container" ]; then
+        current_tags=$(pct config "${item}" | awk -F':' '/tags/ {print $2}' | tr -d '[:space:]')
+      fi
+
+      if [ -n "$current_tags" ]; then
+        current_tags=$(echo "$current_tags" | sed -E "s/\bowner_[^,]*\b/$user/g")
+        if [[ ! "$current_tags" =~ "$user" ]]; then
+          current_tags="${current_tags},${user}"
+        fi
+      else
+        current_tags="${user}"
+      fi
+
+      if [ "$type" == "vm" ]; then
+        echo "Executing: qm set ${item} -tags \"${current_tags}\""
+        qm set "${item}" -tags "${current_tags}"
+      elif [ "$type" == "container" ]; then
+        echo "Executing: pct set ${item} -tags \"${current_tags}\""
+        pct set "${item}" -tags "${current_tags}"
+      fi
+    fi
+  done
 }
 
 # Simplified execution loop
