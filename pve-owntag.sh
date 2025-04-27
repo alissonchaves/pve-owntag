@@ -127,93 +127,57 @@ cat << 'EOF' > "$INSTALL_DIR/pve-owntag"
 source "/opt/pve-owntag/pve-owntag.conf"
 
 # Function to generate tags
-generate_tags() {
-  # Get the list of nodes in the cluster
-  mapfile -t nodes < <(pvesh get /nodes --output-format=json | grep -oP '"node":\s*"\K[^"]+')
+generate_tags() { 
+# Processar VMs
+for vmid_node in $(pvesh get /cluster/resources --type vm --output-format=json | jq -r '.[] | "\(.vmid)|\(.node)"'); do
+  vmid=$(echo "$vmid_node" | cut -d'|' -f1)
+  node=$(echo "$vmid_node" | cut -d'|' -f2)
+  echo "Processando VMID $vmid"
 
-  # Get the list of VMs and Containers from all nodes in the cluster
-  mapfile -t list < <(pvesh get /cluster/resources --type vm --output-format=json | grep -oP '"vmid":\s*\K\d+' | grep -v '"template":\s*1')
+  # Buscar no log a criação dessa VM
+  
+  log_file=$(find /var/log/pve/tasks/ -type f -name '*qmclone*' | xargs grep -l "Logical volume \"vm-${vmid}-disk-0\" created." || true)
 
-  for item in "${list[@]}"; do
-    latest_file=""
-    for node in "${nodes[@]}"; do
-      # Search logs on each node for the VM creation or clone action
-      remote_logs=$(ssh root@"$node" "grep -l -r '\-${item}\-' /var/log/pve/tasks/" 2>/dev/null | xargs ls -t 2>/dev/null | head -n 1 | grep clone)
-      if [ -n "$remote_logs" ]; then
-        latest_file="$remote_logs"
-        break
-      fi
-    done
+  if [[ -n "$log_file" ]]; then
+    filename=$(basename "$log_file")
+    filename="${filename%:}"        # Remove dois-pontos final
+    owner=${filename##*:}           # Depois do último :
+    owner=${owner%@*}                # Antes do @
+    owner="owner_${owner}"           # Adiciona prefixo
+    echo "  -> Encontrado owner: $owner"
 
-    if [ -n "$latest_file" ]; then
-      # Determine if it is a VM or Container
-      if pvesh get /cluster/resources --type vm | grep -q "\"vmid\": $item"; then
-        type="vm"
-      elif pvesh get /cluster/resources --type lxc | grep -q "\"vmid\": $item"; then
-        type="container"
-      fi
+    # Buscar tags atuais
+    current_tags=$(pvesh get /nodes/"$node"/qemu/"$vmid"/config --output-format=json | jq -r '.tags')
 
-      # Extract username from filename (field 8)
-      user=$(basename "$latest_file" | cut -d':' -f8 | cut -d'@' -f1)
-      user="owner_${user}"
-
-      # Get current tags
-      if [ "$type" == "vm" ]; then
-        current_tags=$(qm config "${item}" | awk -F':' '/tags/ {print $2}' | tr -d '[:space:]')
-      elif [ "$type" == "container" ]; then
-        current_tags=$(pct config "${item}" | awk -F':' '/tags/ {print $2}' | tr -d '[:space:]')
-      fi
-
-      if [ -n "$current_tags" ]; then
-        current_tags=$(echo "$current_tags" | sed -E "s/\bowner_[^,]*\b/$user/g")
-        if [[ ! "$current_tags" =~ "$user" ]]; then
-          current_tags="${current_tags},${user}"
-        fi
+    # Preparar nova lista de tags
+    if [[ "$current_tags" == "null" || -z "$current_tags" ]]; then
+      new_tags="$owner"
+    else
+      # Verificar se já existe
+      if [[ "$current_tags" == *"$owner"* ]]; then
+        echo "  -> Owner já presente nas tags. Pulando atualização."
+        continue
       else
-        current_tags="${user}"
-      fi
-
-      if [ "$type" == "vm" ]; then
-        echo "Executing: qm set ${item} -tags \"${current_tags}\""
-        qm set "${item}" -tags "${current_tags}"
-      elif [ "$type" == "container" ]; then
-        echo "Executing: pct set ${item} -tags \"${current_tags}\""
-        pct set "${item}" -tags "${current_tags}"
+        new_tags="$current_tags;$owner"
       fi
     fi
-  done
-}
 
-# Simplified execution loop
+    # Atualizar tags
+    echo "  -> Atualizando tags para: $new_tags"
+    pvesh set /nodes/"$node"/qemu/"$vmid"/config --tags "$new_tags"
+  else
+    echo "  -> Nenhum log de clone encontrado para a VMID $vmid."
+  fi
+
+done
+# done
+
+}
+# Loop principal
 while true; do
     generate_tags
     sleep "$LOOP_INTERVAL"
 done
-EOF
-
-# Make the script executable
-chmod +x "$INSTALL_DIR/pve-owntag"
-
-# Create the configuration file
-cat << 'EOF' > "$CONFIG_FILE"
-# PVE OWNER Tag Configuration
-LOOP_INTERVAL=300
-EOF
-
-# Create the systemd service file
-cat << 'EOF' > "$SERVICE_FILE"
-[Unit]
-Description=PVE OWNER Tag Service
-After=network.target
-
-[Service]
-ExecStart=/opt/pve-owntag/pve-owntag
-Restart=always
-User=root
-WorkingDirectory=/opt/pve-owntag
-
-[Install]
-WantedBy=multi-user.target
 EOF
 
 # Load the systemd service and start the service
@@ -224,3 +188,4 @@ systemctl start pve-owntag.service
 msg_ok "Installation complete. The service is now running."
 
 exit
+# End of script
