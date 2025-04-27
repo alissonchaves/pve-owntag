@@ -10,12 +10,12 @@
 function header_info {
 clear
 cat <<"EOF"
-    ____ _    ________   ____                                 __             
+  ____ _    ________   ____                                 __             
    / __ \ |  / / ____/  / __ \_      ______  ___  _____      / /_____ _____ _
   / /_/ / | / / __/    / / / / | /| / / __ \/ _ \/ ___/_____/ __/ __ / __ /
  / ____/| |/ / /___   / /_/ /| |/ |/ / / / /  __/ /  /_____/ /_/ /_/ / /_/ / 
 /_/     |___/_____/   \____/ |__/|__/_/ /_/\___/_/         \__/\__,_/\__, /  
-                                                                    /____/   
+                                  /____/   
 EOF
 }
 
@@ -24,7 +24,7 @@ header_info
 APP="PVE OWNER Tag"
 hostname=$(hostname)
 
-# Farbvariablen
+# Color variables
 YW=$(echo "\033[33m")
 GN=$(echo "\033[1;92m")
 RD=$(echo "\033[01;31m")
@@ -111,6 +111,15 @@ if ! pveversion | grep -Eq "pve-manager/8.[0-4]"; then
   exit
 fi
 
+# Check if jq is installed
+if ! command -v jq &>/dev/null; then
+  msg_info "Installing jq..."
+  apt-get update && apt-get install -y jq
+  msg_ok "jq installed successfully."
+else
+  msg_ok "jq is already installed."
+fi
+
 # The rest of the script installer and configuration follows below.
 INSTALL_DIR="/opt/pve-owntag"
 SERVICE_FILE="/lib/systemd/system/pve-owntag.service"
@@ -128,55 +137,55 @@ source "/opt/pve-owntag/pve-owntag.conf"
 
 # Function to generate tags
 generate_tags() { 
-# Processar VMs
+# Process VMs
 for vmid_node in $(pvesh get /cluster/resources --type vm --output-format=json | jq -r '.[] | "\(.vmid)|\(.node)"'); do
   vmid=$(echo "$vmid_node" | cut -d'|' -f1)
   node=$(echo "$vmid_node" | cut -d'|' -f2)
-  echo "Processando VMID $vmid"
+  echo "Processing VMID $vmid"
 
-  # Buscar no log a criação dessa VM
+  # Search the log for the creation of this VM
   
   log_file=$(find /var/log/pve/tasks/ -type f -name '*qmclone*' | xargs grep -l "Logical volume \"vm-${vmid}-disk-0\" created." || true)
 
   if [[ -n "$log_file" ]]; then
-    filename=$(basename "$log_file")
-    filename="${filename%:}"        # Remove dois-pontos final
-    owner=${filename##*:}           # Depois do último :
-    owner=${owner%@*}                # Antes do @
-    owner="owner_${owner}"           # Adiciona prefixo
-    echo "  -> Encontrado owner: $owner"
+  filename=$(basename "$log_file")
+  filename="${filename%:}"        # Remove trailing colon
+  owner=${filename##*:}           # After the last :
+  owner=${owner%@*}                # Before the @
+  owner="owner_${owner}"           # Add prefix
+  echo "  -> Found owner: $owner"
 
-    # Buscar tags atuais
-    current_tags=$(pvesh get /nodes/"$node"/qemu/"$vmid"/config --output-format=json | jq -r '.tags')
+  # Fetch current tags
+  current_tags=$(pvesh get /nodes/"$node"/qemu/"$vmid"/config --output-format=json | jq -r '.tags')
 
-    # Preparar nova lista de tags
-    if [[ "$current_tags" == "null" || -z "$current_tags" ]]; then
-      new_tags="$owner"
-    else
-      # Verificar se já existe
-      if [[ "$current_tags" == *"$owner"* ]]; then
-        echo "  -> Owner já presente nas tags. Pulando atualização."
-        continue
-      else
-        new_tags="$current_tags;$owner"
-      fi
-    fi
-
-    # Atualizar tags
-    echo "  -> Atualizando tags para: $new_tags"
-    pvesh set /nodes/"$node"/qemu/"$vmid"/config --tags "$new_tags"
+  # Prepare new list of tags
+  if [[ "$current_tags" == "null" || -z "$current_tags" ]]; then
+    new_tags="$owner"
   else
-    echo "  -> Nenhum log de clone encontrado para a VMID $vmid."
+    # Check if it already exists
+    if [[ "$current_tags" == *"$owner"* ]]; then
+    echo "  -> Owner already present in tags. Skipping update."
+    continue
+    else
+    new_tags="$current_tags;$owner"
+    fi
+  fi
+
+  # Update tags
+  echo "  -> Updating tags to: $new_tags"
+  pvesh set /nodes/"$node"/qemu/"$vmid"/config --tags "$new_tags"
+  else
+  echo "  -> No clone log found for VMID $vmid."
   fi
 
 done
 # done
 
 }
-# Loop principal
+# Main loop
 while true; do
-    generate_tags
-    sleep "$LOOP_INTERVAL"
+  generate_tags
+  sleep "$LOOP_INTERVAL"
 done
 EOF
 
